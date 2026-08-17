@@ -1,0 +1,8 @@
+{
+  "installCommand": "npm install --prefix fisora",
+  "buildCommand": "npm run build --prefix fisora",
+  "outputDirectory": "fisora/build",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
