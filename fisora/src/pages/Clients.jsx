@@ -14,27 +14,29 @@ import InvoicePrint from '../components/InvoicePrint';
 import ClientWorksModal from '../components/ClientWorksModal';
 import ConfirmModal from '../components/ConfirmModal';
 
+const INITIAL_CLIENT_FORM = {
+  firstName: '',
+  lastName: '',
+  phone: '',
+  company: '',
+  pack: 'Start',
+  packPrice: 7500,
+  amountPaid: '',
+  workDate: new Date().toISOString().split('T')[0],
+  workNotes: '',
+};
+
 export default function Clients() {
-  const { clients, addClient, archiveClient, kpis, customPacks } = useData();
+  const { clients, addClient, archiveClient, kpis, customPacks, freelancers } = useData();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [worksModalClient, setWorksModalClient] = useState(null);
   const [clientToDelete, setClientToDelete] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
 
-  // Form State
-  const [newForm, setNewForm] = useState({
-    firstName: '',
-    lastName: '',
-    phone: '',
-    company: '',
-    pack: 'Start',
-    packPrice: 7500, // Default for 'Start'
-    amountPaid: '',
-    incomes: '',
-    expenses: '',
-    worksCount: '1',
-  });
+  const [newForm, setNewForm] = useState(INITIAL_CLIENT_FORM);
+  const [selectedFreelancers, setSelectedFreelancers] = useState([]);
+  const [workExpenses, setWorkExpenses] = useState([]);
 
   const [invoiceToPrint, setInvoiceToPrint] = useState(null);
 
@@ -48,22 +50,73 @@ export default function Clients() {
     return fullName.includes(query) || company.includes(query) || c.phone.includes(query);
   });
 
-  const handleAddSubmit = (e) => {
+  const resetAddForm = () => {
+    setNewForm(INITIAL_CLIENT_FORM);
+    setSelectedFreelancers([]);
+    setWorkExpenses([]);
+  };
+
+  const handleAddFreelancer = () => {
+    setSelectedFreelancers([...selectedFreelancers, { id: '', amount: '' }]);
+  };
+
+  const handleFreelancerChange = (index, field, value) => {
+    const updated = [...selectedFreelancers];
+    updated[index][field] = value;
+    setSelectedFreelancers(updated);
+  };
+
+  const handleRemoveFreelancer = (index) => {
+    setSelectedFreelancers(selectedFreelancers.filter((_, i) => i !== index));
+  };
+
+  const handleAddExpense = () => {
+    setWorkExpenses([...workExpenses, { id: `exp_${Date.now()}`, description: '', amount: '' }]);
+  };
+
+  const handleExpenseChange = (index, field, value) => {
+    const updated = [...workExpenses];
+    updated[index][field] = value;
+    setWorkExpenses(updated);
+  };
+
+  const handleRemoveExpense = (index) => {
+    setWorkExpenses(workExpenses.filter((_, i) => i !== index));
+  };
+
+  const buildClientPayload = () => {
+    const remaining = Math.max(0, (Number(newForm.packPrice) || 0) - (Number(newForm.amountPaid) || 0));
+    const validFreelancers = selectedFreelancers
+      .filter((f) => f.id && f.amount !== '')
+      .map((f) => ({ freelancerId: f.id, amount: Number(f.amount) }));
+    const validExpenses = workExpenses
+      .filter((e) => e.amount !== '')
+      .map((e) => ({ id: e.id, description: e.description || 'مصروف', amount: Number(e.amount) }));
+
+    return {
+      ...newForm,
+      remainingAmount: remaining,
+      initialWork: {
+        date: newForm.workDate,
+        service: newForm.pack,
+        priceFromClient: Number(newForm.packPrice) || 0,
+        notes: newForm.workNotes,
+        freelancers: validFreelancers,
+        expenses: validExpenses,
+      },
+    };
+  };
+
+  const handleAddSubmit = (e, printInvoice = false) => {
     e.preventDefault();
     if (!newForm.firstName || !newForm.lastName) return;
-    addClient(newForm);
-    setNewForm({
-      firstName: '',
-      lastName: '',
-      phone: '',
-      company: '',
-      pack: 'Start',
-      packPrice: 7500,
-      amountPaid: '',
-      incomes: '',
-      expenses: '',
-      worksCount: '1',
-    });
+
+    const payload = buildClientPayload();
+    if (printInvoice) {
+      setInvoiceToPrint(payload);
+    }
+    addClient(payload);
+    resetAddForm();
     setIsAddModalOpen(false);
   };
 
@@ -262,21 +315,21 @@ export default function Clients() {
       {/* Modal: Add New Client */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-lg glass-card rounded-3xl p-6 border border-gray-200 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
+          <div className="w-full max-w-2xl max-h-[90vh] flex flex-col glass-card rounded-3xl border border-gray-200 shadow-2xl relative">
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-200 shrink-0">
               <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
                 <UserPlus size={20} className="text-brand-orange" />
                 <span>إضافة عميل جديد</span>
               </h3>
               <button
-                onClick={() => setIsAddModalOpen(false)}
+                onClick={() => { setIsAddModalOpen(false); resetAddForm(); }}
                 className="p-1 rounded-lg hover:bg-gray-50 text-gray-500 hover:text-gray-900"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleAddSubmit} className="space-y-4 text-xs">
+            <form onSubmit={(e) => handleAddSubmit(e)} className="flex-1 overflow-y-auto p-6 space-y-5 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-gray-600 font-bold mb-1">الاسم الأول *</label>
@@ -326,7 +379,7 @@ export default function Clients() {
               </div>
 
               <div>
-                <label className="block text-gray-600 font-bold mb-1">الباقة المختارة</label>
+                <label className="block text-gray-600 font-bold mb-1">الباقة / العمل الأول *</label>
                 <select
                     value={newForm.pack}
                     onChange={(e) => {
@@ -336,10 +389,10 @@ export default function Clients() {
                       setNewForm({
                         ...newForm,
                         pack: selectedName,
-                        packPrice: pack ? pack.price : '',
+                        packPrice: pack ? pack.price : newForm.packPrice,
                       });
                     }}
-                    className="w-full p-3 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-gray-900 bg-gray-50 mb-4"
+                    className="w-full p-3 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange bg-gray-50 mb-4"
                   >
                     {PREDEFINED_PACKS.map((p) => (
                       <option key={p.id} value={p.name} className="bg-gray-50 text-gray-900">
@@ -354,12 +407,9 @@ export default function Clients() {
                     <option value="باقة مخصصة" className="bg-gray-50 text-gray-900">
                       باقة مخصصة (Custom Agreement)
                     </option>
-                  <option value="باقة مخصصة" className="bg-gray-50 text-gray-900">
-                    باقة مخصصة (Custom Agreement)
-                  </option>
                 </select>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-xl bg-gray-50 border border-gray-100">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-xl bg-gray-50 border border-gray-100 mb-4">
                   <div>
                     <label className="block text-gray-500 font-medium mb-1">السعر الإجمالي (DA)</label>
                     <input
@@ -367,7 +417,7 @@ export default function Clients() {
                       value={newForm.packPrice}
                       onChange={(e) => setNewForm({ ...newForm, packPrice: e.target.value })}
                       disabled={newForm.pack !== 'باقة مخصصة'}
-                      className="w-full p-2.5 rounded-lg bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-gray-900 text-left font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full p-2.5 rounded-lg bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-left font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
                   <div>
@@ -387,28 +437,142 @@ export default function Clients() {
                       value={Math.max(0, (Number(newForm.packPrice) || 0) - (Number(newForm.amountPaid) || 0))}
                       readOnly
                       disabled
-                      className="w-full p-2.5 rounded-lg bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-brand-red text-left font-black opacity-80 cursor-not-allowed"
+                      className="w-full p-2.5 rounded-lg bg-white border-gray-200 shadow-sm text-brand-red text-left font-black opacity-80 cursor-not-allowed"
                     />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <label className="block text-gray-500 font-bold mb-1">تاريخ العمل</label>
+                    <input
+                      type="date"
+                      value={newForm.workDate}
+                      onChange={(e) => setNewForm({ ...newForm, workDate: e.target.value })}
+                      className="w-full p-2.5 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gray-500 font-bold mb-1">ملاحظات العمل</label>
+                    <input
+                      type="text"
+                      value={newForm.workNotes}
+                      onChange={(e) => setNewForm({ ...newForm, workNotes: e.target.value })}
+                      placeholder="أي ملاحظات إضافية"
+                      className="w-full p-2.5 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Freelancers */}
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-3">
+                    <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+                      <h5 className="text-xs font-bold text-gray-700">مستحقات الفريلانسرز</h5>
+                      <button
+                        type="button"
+                        onClick={handleAddFreelancer}
+                        className="text-[10px] bg-orange-50 text-brand-orange px-2 py-1 rounded font-bold hover:bg-brand-orange/30"
+                      >
+                        + إضافة فريلانسر
+                      </button>
+                    </div>
+                    {selectedFreelancers.length === 0 ? (
+                      <p className="text-[10px] text-gray-400 italic">لم يتم تحديد فريلانسرز.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-36 overflow-y-auto">
+                        {selectedFreelancers.map((item, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <select
+                              value={item.id}
+                              onChange={(e) => handleFreelancerChange(idx, 'id', e.target.value)}
+                              className="flex-1 p-2 rounded-lg bg-white border-gray-200 text-gray-900 text-[11px]"
+                            >
+                              <option value="">اختر فريلانسر...</option>
+                              {freelancers.map((f) => (
+                                <option key={f.id} value={f.id}>
+                                  {f.firstName} {f.lastName} ({f.role})
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              type="number"
+                              placeholder="DA"
+                              value={item.amount}
+                              onChange={(e) => handleFreelancerChange(idx, 'amount', e.target.value)}
+                              className="w-20 p-2 rounded-lg bg-white border-gray-200 text-[11px] font-bold"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFreelancer(idx)}
+                              className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Expenses */}
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-3">
+                    <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+                      <h5 className="text-xs font-bold text-gray-700">المصاريف الخارجية</h5>
+                      <button
+                        type="button"
+                        onClick={handleAddExpense}
+                        className="text-[10px] bg-blue-500/20 text-blue-600 px-2 py-1 rounded font-bold hover:bg-blue-500/30"
+                      >
+                        + إضافة مصروف
+                      </button>
+                    </div>
+                    {workExpenses.length === 0 ? (
+                      <p className="text-[10px] text-gray-400 italic">لا توجد مصاريف خارجية.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-36 overflow-y-auto">
+                        {workExpenses.map((item, idx) => (
+                          <div key={item.id} className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="وصف"
+                              value={item.description}
+                              onChange={(e) => handleExpenseChange(idx, 'description', e.target.value)}
+                              className="flex-1 p-2 rounded-lg bg-white border-gray-200 text-[11px]"
+                            />
+                            <input
+                              type="number"
+                              placeholder="DA"
+                              value={item.amount}
+                              onChange={(e) => handleExpenseChange(idx, 'amount', e.target.value)}
+                              className="w-20 p-2 rounded-lg bg-white border-gray-200 text-[11px] font-bold"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveExpense(idx)}
+                              className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 shrink-0 sticky bottom-0 bg-white/95 backdrop-blur-sm -mx-6 px-6 pb-0">
                 <button
                   type="button"
-                  onClick={() => setIsAddModalOpen(false)}
+                  onClick={() => { setIsAddModalOpen(false); resetAddForm(); }}
                   className="px-4 py-2.5 rounded-xl text-gray-500 hover:text-gray-900 font-bold"
                 >
                   إلغاء
                 </button>
                 <button
                   type="button"
-                  onClick={(e) => {
-                    const remaining = Math.max(0, (Number(newForm.packPrice) || 0) - (Number(newForm.amountPaid) || 0));
-                    const clientData = { ...newForm, remainingAmount: remaining };
-                    setInvoiceToPrint(clientData);
-                    handleAddSubmit(e);
-                  }}
+                  onClick={(e) => handleAddSubmit(e, true)}
                   className="px-5 py-2.5 rounded-xl border border-brand-orange text-brand-orange font-extrabold hover:bg-brand-orange/10 transition-all flex items-center gap-2"
                 >
                   حفظ وطباعة الفاتورة

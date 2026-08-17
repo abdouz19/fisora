@@ -117,8 +117,9 @@ export function DataProvider({ children }) {
 
   // Client Handlers
   const addClient = (data) => {
+    const clientId = `c_${Date.now()}`;
     const newClient = {
-      id: `c_${Date.now()}`,
+      id: clientId,
       firstName: data.firstName,
       lastName: data.lastName,
       phone: data.phone,
@@ -134,6 +135,20 @@ export function DataProvider({ children }) {
       isArchived: false,
     };
     setClients((prev) => [newClient, ...prev]);
+
+    if (data.initialWork) {
+      const newWork = {
+        id: `w_${Date.now()}`,
+        clientId,
+        date: data.initialWork.date || new Date().toISOString().split('T')[0],
+        service: data.initialWork.service || data.pack || 'Start',
+        priceFromClient: Number(data.initialWork.priceFromClient ?? data.packPrice) || 0,
+        expenses: data.initialWork.expenses || [],
+        freelancers: data.initialWork.freelancers || [],
+        notes: data.initialWork.notes || '',
+      };
+      setWorks((prev) => [newWork, ...prev]);
+    }
   };
 
   const recordClientPayment = (id, paymentAmount) => {
