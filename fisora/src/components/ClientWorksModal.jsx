@@ -27,8 +27,27 @@ export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
     date: new Date().toISOString().split('T')[0],
     service: 'Start',
     priceFromClient: '7500',
+    priceMode: 'none', // 'none' | 'discount' | 'surcharge'
     notes: '',
   });
+
+  const allPacksList = [...PREDEFINED_PACKS, ...customPacks];
+  const currentPack = allPacksList.find((p) => p.name === newWork.service);
+  const isPackService = !!currentPack; // a predefined/custom pack (not a free custom agreement)
+  const basePackPrice = currentPack ? Number(currentPack.price) || 0 : null;
+  const priceLocked = isPackService && newWork.priceMode === 'none';
+  const priceDelta =
+    basePackPrice != null ? (Number(newWork.priceFromClient) || 0) - basePackPrice : 0;
+
+  // Toggle discount/surcharge (mutually exclusive). Turning it off restores the base pack price.
+  const setPriceMode = (mode) => {
+    setNewWork((prev) => {
+      const newMode = prev.priceMode === mode ? 'none' : mode;
+      const price =
+        newMode === 'none' && currentPack ? currentPack.price : prev.priceFromClient;
+      return { ...prev, priceMode: newMode, priceFromClient: price };
+    });
+  };
 
   // State for dynamic arrays
   const [selectedFreelancers, setSelectedFreelancers] = useState([]); // Array of { id, amount }
@@ -121,6 +140,7 @@ export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
       date: new Date().toISOString().split('T')[0],
       service: 'Start',
       priceFromClient: '7500',
+      priceMode: 'none',
       notes: '',
     });
     setSelectedFreelancers([]);
@@ -134,6 +154,7 @@ export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
       date: work.date,
       service: work.service,
       priceFromClient: work.priceFromClient || '',
+      priceMode: work.priceAdjustment?.type || 'none',
       notes: work.notes || '',
     });
 
@@ -171,10 +192,17 @@ export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
       .filter((e) => e.amount !== '')
       .map((e) => ({ id: e.id, description: e.description || 'مصروف', amount: Number(e.amount) }));
 
+    const price = Number(newWork.priceFromClient) || 0;
+    const priceAdjustment =
+      newWork.priceMode !== 'none' && currentPack
+        ? { type: newWork.priceMode, base: Number(currentPack.price) || 0, amount: price - (Number(currentPack.price) || 0) }
+        : null;
+
     return {
       clientId: client.id,
       ...newWork,
-      priceFromClient: Number(newWork.priceFromClient) || 0,
+      priceFromClient: price,
+      priceAdjustment,
       freelancers: validFreelancers,
       expenses: validExpenses,
     };
@@ -482,8 +510,21 @@ export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
                       </td>
                       <td className="px-4 py-3 font-medium">{work.date}</td>
                       <td className="px-4 py-3 font-bold">{work.service}</td>
-                      <td className="px-4 py-3 text-emerald-400 font-bold" dir="ltr">
-                        {Number(work.priceFromClient || 0).toLocaleString()} DA
+                      <td className="px-4 py-3 font-bold" dir="ltr">
+                        <span className="text-emerald-400">
+                          {Number(work.priceFromClient || 0).toLocaleString()} DA
+                        </span>
+                        {work.priceAdjustment && (
+                          <span
+                            className={`block text-[9px] font-bold mt-0.5 ${
+                              work.priceAdjustment.type === 'discount' ? 'text-emerald-500' : 'text-rose-500'
+                            }`}
+                            dir="rtl"
+                          >
+                            {work.priceAdjustment.type === 'discount' ? 'تخفيض' : 'زيادة'}{' '}
+                            <span dir="ltr">{Math.abs(work.priceAdjustment.amount).toLocaleString()} DA</span>
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         {workRemaining(work) <= 0 ? (
@@ -641,6 +682,7 @@ export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
                         ...newWork,
                         service: selectedName,
                         priceFromClient: pack ? pack.price : newWork.priceFromClient,
+                        priceMode: 'none',
                       });
                     }}
                     className="w-full p-2.5 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-gray-900 text-xs bg-gray-50"
@@ -667,9 +709,45 @@ export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
                     placeholder="7500"
                     value={newWork.priceFromClient}
                     onChange={(e) => setNewWork({ ...newWork, priceFromClient: e.target.value })}
-                    disabled={newWork.service !== 'باقة مخصصة' && [...PREDEFINED_PACKS, ...customPacks].some(p => p.name === newWork.service)}
+                    disabled={priceLocked}
                     className="w-full p-2.5 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-gray-900 text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                   />
+                  {isPackService && (
+                    <div className="mt-1.5 space-y-1">
+                      <div className="flex items-center gap-4">
+                        <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-bold text-emerald-600">
+                          <input
+                            type="checkbox"
+                            checked={newWork.priceMode === 'discount'}
+                            onChange={() => setPriceMode('discount')}
+                            className="w-3.5 h-3.5 rounded accent-emerald-500 cursor-pointer"
+                          />
+                          تخفيض
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-bold text-rose-600">
+                          <input
+                            type="checkbox"
+                            checked={newWork.priceMode === 'surcharge'}
+                            onChange={() => setPriceMode('surcharge')}
+                            className="w-3.5 h-3.5 rounded accent-rose-500 cursor-pointer"
+                          />
+                          زيادة
+                        </label>
+                      </div>
+                      {newWork.priceMode !== 'none' && (
+                        <p className="text-[10px] text-gray-500">
+                          السعر الأصلي: <span dir="ltr">{basePackPrice.toLocaleString()} DA</span>
+                          {priceDelta !== 0 && (
+                            <span className={priceDelta < 0 ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                              {' · '}
+                              {priceDelta < 0 ? 'تخفيض ' : 'زيادة '}
+                              <span dir="ltr">{Math.abs(priceDelta).toLocaleString()} DA</span>
+                            </span>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-gray-500 text-xs font-bold mb-1">ملاحظات</label>

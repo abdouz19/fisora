@@ -209,6 +209,7 @@ export function DataProvider({ children }) {
       date: workData.date || new Date().toISOString().split('T')[0],
       service: workData.service,
       priceFromClient: price,
+      priceAdjustment: workData.priceAdjustment || null, // { type, base, amount } or null
       amountPaid: Math.min(price, Number(workData.amountPaid) || 0),
       expenses: workData.expenses || [], // Array of { id, amount, description }
       freelancers: workData.freelancers || [], // Array of { freelancerId, amount }
