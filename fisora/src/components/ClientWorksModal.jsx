@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plus, Trash2, Save, Edit2 } from 'lucide-react';
+import { X, Plus, Trash2, Save, Edit2, ArrowLeftRight } from 'lucide-react';
 import { useData, PREDEFINED_PACKS } from '../context/DataContext';
 import ConfirmModal from './ConfirmModal';
 
@@ -10,6 +10,8 @@ export default function ClientWorksModal({ client, onClose }) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingWorkId, setEditingWorkId] = useState(null);
   const [workToDelete, setWorkToDelete] = useState(null);
+  const [replaceContext, setReplaceContext] = useState(null);
+  const [replaceForm, setReplaceForm] = useState({ freelancerId: '', amount: '' });
 
   const [newWork, setNewWork] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -54,6 +56,51 @@ export default function ClientWorksModal({ client, onClose }) {
     const updated = [...selectedFreelancers];
     updated.splice(index, 1);
     setSelectedFreelancers(updated);
+  };
+
+  const getFreelancerName = (freelancerId) => {
+    const f = freelancers.find((item) => item.id === freelancerId);
+    return f ? `${f.firstName} ${f.lastName}` : 'غير معروف';
+  };
+
+  const getAvailableFreelancers = (work, excludeIndex = null) => {
+    const assignedIds = (work?.freelancers || [])
+      .map((f, idx) => (idx === excludeIndex ? null : f.freelancerId))
+      .filter(Boolean);
+    return freelancers.filter((f) => !f.isArchived && !assignedIds.includes(f.id));
+  };
+
+  const openReplaceModal = (work, index) => {
+    const current = work.freelancers[index];
+    setReplaceContext({ work, index });
+    setReplaceForm({
+      freelancerId: '',
+      amount: current?.amount?.toString() || '',
+    });
+  };
+
+  const closeReplaceModal = () => {
+    setReplaceContext(null);
+    setReplaceForm({ freelancerId: '', amount: '' });
+  };
+
+  const handleReplaceSubmit = (e) => {
+    e.preventDefault();
+    if (!replaceContext || !replaceForm.freelancerId || replaceForm.amount === '') return;
+
+    const { work, index } = replaceContext;
+    const updatedFreelancers = [...(work.freelancers || [])];
+    updatedFreelancers[index] = {
+      freelancerId: replaceForm.freelancerId,
+      amount: Number(replaceForm.amount),
+    };
+
+    updateWork(work.id, {
+      ...work,
+      freelancers: updatedFreelancers,
+    });
+
+    closeReplaceModal();
   };
 
   // --- Form Actions ---
@@ -221,10 +268,20 @@ export default function ClientWorksModal({ client, onClose }) {
                               const fObj = freelancers.find((f) => f.id === fPay.freelancerId);
                               return (
                                 <div key={idx} className="flex items-center justify-between gap-2 text-[10px] bg-gray-50/60 px-2 py-1 rounded">
-                                  <span>{fObj ? `${fObj.firstName}` : 'غير معروف'}</span>
-                                  <span className="text-amber-300 font-bold" dir="ltr">
-                                    {fPay.amount.toLocaleString()} DA
-                                  </span>
+                                  <span>{fObj ? `${fObj.firstName} ${fObj.lastName}` : 'غير معروف'}</span>
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-amber-300 font-bold" dir="ltr">
+                                      {fPay.amount.toLocaleString()} DA
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => openReplaceModal(work, idx)}
+                                      className="p-1 rounded bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
+                                      title="استبدال الفريلانسر"
+                                    >
+                                      <ArrowLeftRight size={11} />
+                                    </button>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -404,7 +461,14 @@ export default function ClientWorksModal({ client, onClose }) {
                 {/* Freelancers Section */}
                 <div className="bg-gray-100/50 p-4 rounded-xl border border-gray-100 space-y-3">
                   <div className="flex items-center justify-between border-b border-gray-200 pb-2">
-                    <h5 className="text-xs font-bold text-gray-700">مستحقات الفريلانسرز (الفريق)</h5>
+                    <div>
+                      <h5 className="text-xs font-bold text-gray-700">مستحقات الفريلانسرز (الفريق)</h5>
+                      {editingWorkId && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          يمكنك تغيير أو استبدال أي فريلانسر إذا لم ينجز العمل
+                        </p>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={handleAddFreelancer}
@@ -426,7 +490,7 @@ export default function ClientWorksModal({ client, onClose }) {
                             className="flex-1 p-2 rounded-lg bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-gray-900 text-[11px] bg-gray-50"
                           >
                             <option value="">اختر فريلانسر...</option>
-                            {freelancers.map((f) => (
+                            {freelancers.filter((f) => !f.isArchived).map((f) => (
                               <option key={f.id} value={f.id}>
                                 {f.firstName} {f.lastName} ({f.role})
                               </option>
@@ -443,6 +507,7 @@ export default function ClientWorksModal({ client, onClose }) {
                             type="button"
                             onClick={() => handleRemoveFreelancer(idx)}
                             className="p-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                            title="إزالة"
                           >
                             <X size={12} />
                           </button>
@@ -473,6 +538,79 @@ export default function ClientWorksModal({ client, onClose }) {
           )}
         </div>
       </div>
+
+      {/* Replace Freelancer Modal */}
+      {replaceContext && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white rounded-2xl border border-gray-200 shadow-2xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-sm font-black text-gray-900 flex items-center gap-2">
+                <ArrowLeftRight size={16} className="text-blue-500" />
+                <span>استبدال فريلانسر</span>
+              </h4>
+              <button
+                type="button"
+                onClick={closeReplaceModal}
+                className="p-1 rounded-lg hover:bg-gray-50 text-gray-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500 mb-4">
+              استبدال{' '}
+              <span className="font-bold text-gray-900">
+                {getFreelancerName(replaceContext.work.freelancers[replaceContext.index]?.freelancerId)}
+              </span>{' '}
+              في عمل <span className="font-bold text-gray-900">{replaceContext.work.service}</span>
+            </p>
+
+            <form onSubmit={handleReplaceSubmit} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">الفريلانسر الجديد *</label>
+                <select
+                  required
+                  value={replaceForm.freelancerId}
+                  onChange={(e) => setReplaceForm({ ...replaceForm, freelancerId: e.target.value })}
+                  className="w-full p-2.5 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 text-xs"
+                >
+                  <option value="">اختر فريلانسر بديل...</option>
+                  {getAvailableFreelancers(replaceContext.work, replaceContext.index).map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.firstName} {f.lastName} ({f.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">المبلغ (DA) *</label>
+                <input
+                  type="number"
+                  required
+                  value={replaceForm.amount}
+                  onChange={(e) => setReplaceForm({ ...replaceForm, amount: e.target.value })}
+                  className="w-full p-2.5 rounded-xl bg-white border border-gray-200 text-gray-900 text-xs font-bold"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeReplaceModal}
+                  className="px-4 py-2 rounded-xl text-gray-500 font-bold text-xs"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-500"
+                >
+                  تأكيد الاستبدال
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal */}
       <ConfirmModal
