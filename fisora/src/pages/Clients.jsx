@@ -27,12 +27,18 @@ const INITIAL_CLIENT_FORM = {
 };
 
 export default function Clients() {
-  const { clients, addClient, archiveClient, kpis, customPacks, freelancers } = useData();
+  const { clients, addClient, archiveClient, kpis, customPacks, freelancers, works } = useData();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [worksModalClient, setWorksModalClient] = useState(null);
   const [clientToDelete, setClientToDelete] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
+
+  // --- Multi-client analytics ---
+  const [selectedClientIds, setSelectedClientIds] = useState([]);
+  const [datePreset, setDatePreset] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const [newForm, setNewForm] = useState(INITIAL_CLIENT_FORM);
   const [selectedFreelancers, setSelectedFreelancers] = useState([]);
@@ -49,6 +55,64 @@ export default function Clients() {
     const query = searchTerm.toLowerCase();
     return fullName.includes(query) || company.includes(query) || c.phone.includes(query);
   });
+
+  // --- Selection handlers ---
+  const toggleClientSelect = (id) =>
+    setSelectedClientIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  const clearSelection = () => setSelectedClientIds([]);
+  const selectAllVisible = () => setSelectedClientIds(filteredClients.map((c) => c.id));
+
+  // --- Date range handling ---
+  const toISO = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const applyPreset = (preset) => {
+    setDatePreset(preset);
+    const now = new Date();
+    if (preset === 'all') {
+      setDateFrom('');
+      setDateTo('');
+    } else if (preset === 'month') {
+      setDateFrom(toISO(new Date(now.getFullYear(), now.getMonth(), 1)));
+      setDateTo(toISO(now));
+    } else if (preset === 'year') {
+      setDateFrom(toISO(new Date(now.getFullYear(), 0, 1)));
+      setDateTo(toISO(now));
+    }
+  };
+
+  // --- Aggregate stats for selected clients within the date range ---
+  const allPacks = [...PREDEFINED_PACKS, ...customPacks];
+  const videosForService = (service) => {
+    const pack = allPacks.find((p) => p.name === service);
+    return pack ? Number(pack.videosCount) || 0 : 0;
+  };
+  const selectedSet = new Set(selectedClientIds);
+  const analyticsWorks = works.filter((w) => {
+    if (!selectedSet.has(w.clientId)) return false;
+    if (dateFrom && w.date < dateFrom) return false;
+    if (dateTo && w.date > dateTo) return false;
+    return true;
+  });
+  const stats = analyticsWorks.reduce(
+    (acc, w) => {
+      const arrayExpenses = (w.expenses || []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+      const freelancerPay = (w.freelancers || []).reduce((s, f) => s + (Number(f.amount) || 0), 0);
+      acc.works += 1;
+      acc.videos += videosForService(w.service);
+      acc.revenue += Number(w.priceFromClient) || 0;
+      acc.paid += Number(w.amountPaid) || 0;
+      acc.cost += arrayExpenses + freelancerPay + (w.externalExpenses || 0);
+      return acc;
+    },
+    { works: 0, videos: 0, revenue: 0, paid: 0, cost: 0 }
+  );
+  const statsProfit = stats.revenue - stats.cost;
 
   const resetAddForm = () => {
     setNewForm(INITIAL_CLIENT_FORM);
@@ -201,91 +265,230 @@ export default function Clients() {
             <span>{showArchived ? 'العملاء النشطين' : 'الأرشيف'}</span>
           </button>
         </div>
-        <span className="text-xs font-bold text-gray-500 hidden sm:block">
-          عرض {filteredClients.length} عميل
-        </span>
+        <div className="flex items-center gap-3">
+          {selectedClientIds.length > 0 ? (
+            <button
+              onClick={clearSelection}
+              className="text-xs font-bold text-rose-500 hover:text-rose-600 whitespace-nowrap"
+            >
+              إلغاء التحديد ({selectedClientIds.length})
+            </button>
+          ) : (
+            <button
+              onClick={selectAllVisible}
+              className="text-xs font-bold text-brand-orange hover:brightness-110 whitespace-nowrap"
+            >
+              تحديد الكل
+            </button>
+          )}
+          <span className="text-xs font-bold text-gray-500 hidden sm:block">
+            عرض {filteredClients.length} عميل
+          </span>
+        </div>
       </div>
 
-      {/* Clients Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+      {/* Multi-client analytics summary */}
+      {selectedClientIds.length > 0 && (
+        <div className="glass-card rounded-2xl p-5 border border-brand-orange/40 bg-brand-orange/5 space-y-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-black text-gray-900">
+                ملخص {selectedClientIds.length} عملاء محددين
+              </h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                إجمالي العمل والفيديوهات والمداخيل خلال الفترة المحددة
+              </p>
+            </div>
+            {/* Time filters */}
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={datePreset}
+                onChange={(e) => applyPreset(e.target.value)}
+                className="p-2 rounded-lg bg-white border border-gray-200 text-gray-900 text-xs font-bold"
+              >
+                <option value="all">كل الوقت</option>
+                <option value="month">هذا الشهر</option>
+                <option value="year">هذا العام</option>
+                <option value="custom">فترة مخصصة</option>
+              </select>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setDatePreset('custom');
+                }}
+                className="p-2 rounded-lg bg-white border border-gray-200 text-gray-900 text-xs"
+                title="من"
+              />
+              <span className="text-gray-400 text-xs">→</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setDatePreset('custom');
+                }}
+                className="p-2 rounded-lg bg-white border border-gray-200 text-gray-900 text-xs"
+                title="إلى"
+              />
+            </div>
+          </div>
+
+          {/* Stat tiles */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="bg-white rounded-xl p-3 border border-gray-100 text-center">
+              <span className="text-[11px] text-gray-400 block">عدد الأعمال</span>
+              <span className="text-lg font-black text-gray-900">{stats.works}</span>
+            </div>
+            <div className="bg-white rounded-xl p-3 border border-gray-100 text-center">
+              <span className="text-[11px] text-gray-400 block">عدد الفيديوهات</span>
+              <span className="text-lg font-black text-blue-500">{stats.videos}</span>
+            </div>
+            <div className="bg-white rounded-xl p-3 border border-gray-100 text-center">
+              <span className="text-[11px] text-gray-400 block">المداخيل</span>
+              <span className="text-lg font-black text-emerald-500" dir="ltr">
+                {stats.revenue.toLocaleString()} DA
+              </span>
+            </div>
+            <div className="bg-white rounded-xl p-3 border border-gray-100 text-center">
+              <span className="text-[11px] text-gray-400 block">المدفوع</span>
+              <span className="text-lg font-black text-gray-900" dir="ltr">
+                {stats.paid.toLocaleString()} DA
+              </span>
+            </div>
+            <div className="bg-white rounded-xl p-3 border border-brand-orange/30 text-center">
+              <span className="text-[11px] text-brand-orange font-bold block">الربح الصافي</span>
+              <span
+                className={`text-lg font-black ${statsProfit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}
+                dir="ltr"
+              >
+                {statsProfit.toLocaleString()} DA
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clients Cards (full width) */}
+      <div className="flex flex-col gap-4">
         {filteredClients.map((c) => {
-          const profit = c.incomes - c.expenses;
+          const total = Number(c.incomes) || 0;
+          const paid = Number(c.amountPaid) || 0;
+          const remaining = Number(c.remainingAmount) || 0;
+          const profit = total - (Number(c.expenses) || 0);
           const isProfitable = profit >= 0;
+          const paidPct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
+          const isPaidUp = remaining <= 0 && total > 0;
           return (
             <div
               key={c.id}
-              className="glass-card rounded-2xl p-5 border border-gray-200 glass-card-hover flex flex-col justify-between relative overflow-hidden"
+              className={`glass-card rounded-2xl p-5 border glass-card-hover flex flex-col lg:flex-row lg:items-center gap-5 ${
+                selectedClientIds.includes(c.id)
+                  ? 'border-brand-orange ring-1 ring-brand-orange'
+                  : 'border-gray-200'
+              }`}
             >
-              <div>
-                {/* Client Header info */}
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center font-black text-lg text-gray-900 shadow-md">
-                      {c.firstName.charAt(0)}
-                    </div>
-                    <div>
-                      <h3 className="text-base font-extrabold text-gray-900">
-                        {c.firstName} {c.lastName}
-                      </h3>
-                      <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
-                        <Building size={12} className="text-brand-orange" />
-                        <span>{c.company}</span>
-                      </p>
-                    </div>
+              {/* Identity */}
+              <div className="flex items-center gap-3 lg:w-64 lg:shrink-0">
+                <input
+                  type="checkbox"
+                  checked={selectedClientIds.includes(c.id)}
+                  onChange={() => toggleClientSelect(c.id)}
+                  className="w-4 h-4 rounded accent-brand-orange cursor-pointer shrink-0"
+                  title="تحديد للإحصائيات"
+                />
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center font-black text-lg shadow-md shrink-0">
+                  {c.firstName.charAt(0)}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base font-extrabold text-gray-900 truncate">
+                      {c.firstName} {c.lastName}
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-orange-50 text-brand-orange border border-brand-orange shrink-0">
+                      {c.pack}
+                    </span>
                   </div>
+                  <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                    <Building size={12} className="text-brand-orange shrink-0" />
+                    <span className="truncate">{c.company}</span>
+                  </p>
+                  <p className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5" dir="ltr">
+                    <Phone size={11} className="shrink-0" />
+                    <span>{c.phone}</span>
+                  </p>
+                </div>
+              </div>
 
-                  <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-orange-50 text-brand-orange border border-brand-orange">
-                    {c.pack}
+              {/* Payment status */}
+              <div className="flex-1 bg-gray-50 rounded-xl p-4 border border-gray-100">
+                <div className="flex items-center justify-between gap-3 mb-2.5">
+                  <div>
+                    <span className="text-gray-400 block text-[11px]">الإجمالي</span>
+                    <span className="font-extrabold text-gray-900 text-sm" dir="ltr">
+                      {total.toLocaleString()} DA
+                    </span>
+                  </div>
+                  <div className="text-center">
+                    <span className="text-gray-400 block text-[11px]">المدفوع</span>
+                    <span className="font-extrabold text-emerald-500 text-sm" dir="ltr">
+                      {paid.toLocaleString()} DA
+                    </span>
+                  </div>
+                  <div className="text-left">
+                    <span className="text-gray-400 block text-[11px]">المتبقي</span>
+                    <span
+                      className={`font-extrabold text-sm ${isPaidUp ? 'text-emerald-500' : 'text-rose-500'}`}
+                      dir="ltr"
+                    >
+                      {remaining.toLocaleString()} DA
+                    </span>
+                  </div>
+                </div>
+                <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${isPaidUp ? 'bg-emerald-500' : 'bg-brand-orange'}`}
+                    style={{ width: `${paidPct}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1 text-center">
+                  {isPaidUp ? 'تم السداد بالكامل ✓' : `${paidPct}% مدفوع`}
+                </p>
+              </div>
+
+              {/* Business summary */}
+              <div className="flex items-center justify-around gap-5 lg:gap-6 lg:shrink-0 px-1">
+                <div className="text-center">
+                  <span className="text-gray-400 block text-[11px]">المصاريف</span>
+                  <span className="font-extrabold text-rose-400 text-sm" dir="ltr">
+                    {(Number(c.expenses) || 0).toLocaleString()} DA
                   </span>
                 </div>
-
-                {/* Contact Phone */}
-                <div className="text-xs text-gray-400 flex items-center gap-1.5 mb-4" dir="ltr">
-                  <Phone size={12} className="text-gray-400" />
-                  <span>{c.phone}</span>
+                <div className="text-center">
+                  <span className="text-gray-500 block text-[11px] font-bold">الربح الصافي</span>
+                  <span
+                    className={`font-black text-base ${isProfitable ? 'text-emerald-500' : 'text-rose-500'}`}
+                    dir="ltr"
+                  >
+                    {isProfitable ? '+' : ''}{profit.toLocaleString()} DA
+                  </span>
                 </div>
-
-                {/* Client Financials Breakdown explicitly requested by user */}
-                <div className="grid grid-cols-2 gap-2 my-2 p-3 rounded-xl bg-gray-50 border border-gray-100 text-xs">
-                  <div>
-                    <span className="text-gray-400 block">المداخيل</span>
-                    <span className="font-extrabold text-emerald-400 text-sm" dir="ltr">
-                      {c.incomes.toLocaleString()} DA
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 block">المصاريف</span>
-                    <span className="font-extrabold text-rose-400 text-sm" dir="ltr">
-                      {c.expenses.toLocaleString()} DA
-                    </span>
-                  </div>
-                  <div className="col-span-2 pt-2 mt-1 border-t border-gray-100 flex items-center justify-between">
-                    <div>
-                      <span className="text-gray-500 font-bold block">الربح الصافي</span>
-                      <span
-                        className={`font-black text-base ${
-                          isProfitable ? 'text-emerald-300' : 'text-rose-300'
-                        }`}
-                        dir="ltr"
-                      >
-                        {isProfitable ? '+' : ''}{profit.toLocaleString()} DA
-                      </span>
-                    </div>
-                    <div className="text-left">
-                      <span className="text-gray-400 block text-[10px]">الأعمال / المشروعات</span>
-                      <span className="font-extrabold text-gray-900 text-xs">{c.worksCount} أعمال</span>
-                    </div>
-                  </div>
+                <div className="text-center">
+                  <span className="text-gray-400 block text-[11px]">الأعمال</span>
+                  <span className="font-extrabold text-gray-900 text-sm">{c.worksCount}</span>
                 </div>
               </div>
 
               {/* Actions */}
-              <div className="flex items-center justify-between pt-3 mt-2 border-t border-gray-200">
-                <span className="text-[11px] text-gray-400">تاريخ الإضافة: {c.date || 'جديد'}</span>
+              <div className="flex flex-col items-stretch lg:items-end gap-2 lg:shrink-0 lg:border-r lg:border-gray-200 lg:pr-5">
+                <span className="text-[10px] text-gray-400 order-last lg:order-first">
+                  {c.date || 'جديد'}
+                </span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setWorksModalClient(c)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-50 hover:bg-brand-orange/30 text-brand-orange transition-all cursor-pointer text-xs font-bold"
+                    className="flex-1 lg:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-orange-50 hover:bg-brand-orange/30 text-brand-orange transition-all cursor-pointer text-xs font-bold"
                     title="سجل الأعمال والمشاريع"
                   >
                     <List size={14} />
@@ -293,7 +496,7 @@ export default function Clients() {
                   </button>
                   <button
                     onClick={() => setClientToDelete(c)}
-                    className="p-1.5 rounded-lg bg-gray-50 hover:bg-orange-50 text-gray-400 hover:text-brand-orange transition-all cursor-pointer"
+                    className="p-2 rounded-lg bg-gray-50 hover:bg-orange-50 text-gray-400 hover:text-brand-orange transition-all cursor-pointer"
                     title="أرشفة العميل"
                   >
                     <Archive size={16} />
@@ -593,6 +796,7 @@ export default function Clients() {
         <ClientWorksModal
           client={worksModalClient}
           onClose={() => setWorksModalClient(null)}
+          onPrintInvoice={setInvoiceToPrint}
         />
       )}
 

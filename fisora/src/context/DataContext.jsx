@@ -137,12 +137,15 @@ export function DataProvider({ children }) {
     setClients((prev) => [newClient, ...prev]);
 
     if (data.initialWork) {
+      const price = Number(data.initialWork.priceFromClient ?? data.packPrice) || 0;
       const newWork = {
         id: `w_${Date.now()}`,
         clientId,
         date: data.initialWork.date || new Date().toISOString().split('T')[0],
         service: data.initialWork.service || data.pack || 'Start',
-        priceFromClient: Number(data.initialWork.priceFromClient ?? data.packPrice) || 0,
+        priceFromClient: price,
+        // Initial payment entered at client creation applies to this first work
+        amountPaid: Math.min(price, Number(data.amountPaid) || 0),
         expenses: data.initialWork.expenses || [],
         freelancers: data.initialWork.freelancers || [],
         notes: data.initialWork.notes || '',
@@ -199,12 +202,14 @@ export function DataProvider({ children }) {
 
   // Works Handlers
   const addWork = (workData) => {
+    const price = Number(workData.priceFromClient) || 0;
     const newWork = {
       id: `w_${Date.now()}`,
       clientId: workData.clientId,
       date: workData.date || new Date().toISOString().split('T')[0],
       service: workData.service,
-      priceFromClient: Number(workData.priceFromClient) || 0,
+      priceFromClient: price,
+      amountPaid: Math.min(price, Number(workData.amountPaid) || 0),
       expenses: workData.expenses || [], // Array of { id, amount, description }
       freelancers: workData.freelancers || [], // Array of { freelancerId, amount }
       notes: workData.notes || '',
@@ -214,6 +219,20 @@ export function DataProvider({ children }) {
 
   const updateWork = (id, updatedData) => {
     setWorks((prev) => prev.map((w) => (w.id === id ? { ...w, ...updatedData } : w)));
+  };
+
+  // Register a payment against a single work (capped at its price so remaining never goes negative)
+  const recordWorkPayment = (workId, amount) => {
+    const numericAmount = Number(amount);
+    if (!numericAmount || numericAmount <= 0) return;
+    setWorks((prev) =>
+      prev.map((w) => {
+        if (w.id !== workId) return w;
+        const price = Number(w.priceFromClient) || 0;
+        const currentPaid = Number(w.amountPaid) || 0;
+        return { ...w, amountPaid: Math.min(price, currentPaid + numericAmount) };
+      })
+    );
   };
 
   const deleteWork = (id) => {
@@ -233,6 +252,7 @@ export function DataProvider({ children }) {
   const getClientDerivedStats = (clientId) => {
     const clientWorks = getClientWorks(clientId);
     const incomes = clientWorks.reduce((sum, w) => sum + (w.priceFromClient || 0), 0);
+    const paid = clientWorks.reduce((sum, w) => sum + (Number(w.amountPaid) || 0), 0);
     const expenses = clientWorks.reduce((sum, w) => {
       // Handle legacy externalExpenses if any exist from before, or sum up the new expenses array
       const legacyExpense = w.externalExpenses || 0;
@@ -241,7 +261,7 @@ export function DataProvider({ children }) {
       return sum + legacyExpense + arrayExpenses + freelancerPay;
     }, 0);
     const worksCount = clientWorks.length;
-    return { incomes, expenses, worksCount };
+    return { incomes, expenses, worksCount, paid };
   };
 
   const getFreelancerDerivedDues = (freelancerId) => {
@@ -254,10 +274,17 @@ export function DataProvider({ children }) {
   // Combine static initial values with derived values
   const augmentedClients = clients.map((c) => {
     const derived = getClientDerivedStats(c.id);
+    const incomes = (Number(c.incomes) || 0) + derived.incomes;
+    const expenses = (Number(c.expenses) || 0) + derived.expenses;
+    // Amount paid is now the sum of per-work payments (the initial payment lives on the first work).
+    const amountPaid = derived.paid;
     return {
       ...c,
-      incomes: (Number(c.incomes) || 0) + derived.incomes,
-      expenses: (Number(c.expenses) || 0) + derived.expenses,
+      incomes,
+      expenses,
+      amountPaid,
+      // Total the client owes is the sum of ALL their works, not just the initial pack price.
+      remainingAmount: Math.max(0, incomes - amountPaid),
       worksCount: (Number(c.worksCount) || 1) + derived.worksCount - (c.worksCount ? 1 : 0),
     };
   });
@@ -305,6 +332,7 @@ export function DataProvider({ children }) {
         addWork,
         updateWork,
         deleteWork,
+        recordWorkPayment,
         getClientWorks,
         clearAllData,
         kpis: {

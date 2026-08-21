@@ -1,17 +1,27 @@
 import React, { useState } from 'react';
-import { X, Plus, Trash2, Save, Edit2, ArrowLeftRight } from 'lucide-react';
+import { X, Plus, Trash2, Save, Edit2, ArrowLeftRight, Printer, Wallet } from 'lucide-react';
 import { useData, PREDEFINED_PACKS } from '../context/DataContext';
 import ConfirmModal from './ConfirmModal';
 
-export default function ClientWorksModal({ client, onClose }) {
-  const { addWork, updateWork, deleteWork, getClientWorks, freelancers, customPacks } = useData();
+// Remaining amount still owed on a single work
+const workRemaining = (work) =>
+  Math.max(0, (Number(work.priceFromClient) || 0) - (Number(work.amountPaid) || 0));
+
+export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
+  const { addWork, updateWork, deleteWork, getClientWorks, freelancers, customPacks, recordWorkPayment } = useData();
   const clientWorks = getClientWorks(client.id);
 
   const [isAdding, setIsAdding] = useState(false);
   const [editingWorkId, setEditingWorkId] = useState(null);
   const [workToDelete, setWorkToDelete] = useState(null);
+  const [selectedWorkIds, setSelectedWorkIds] = useState([]);
   const [replaceContext, setReplaceContext] = useState(null);
   const [replaceForm, setReplaceForm] = useState({ freelancerId: '', amount: '' });
+
+  // --- Payment modal state ---
+  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [paymentEntries, setPaymentEntries] = useState([]); // { workId, selected, amount }
+  const [printReceipt, setPrintReceipt] = useState(true);
 
   const [newWork, setNewWork] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -151,10 +161,7 @@ export default function ClientWorksModal({ client, onClose }) {
     }
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!newWork.service) return;
-
+  const buildWorkData = () => {
     // Filter valid entries
     const validFreelancers = selectedFreelancers
       .filter((f) => f.id && f.amount !== '')
@@ -164,20 +171,171 @@ export default function ClientWorksModal({ client, onClose }) {
       .filter((e) => e.amount !== '')
       .map((e) => ({ id: e.id, description: e.description || 'مصروف', amount: Number(e.amount) }));
 
-    const workData = {
+    return {
       clientId: client.id,
       ...newWork,
       priceFromClient: Number(newWork.priceFromClient) || 0,
       freelancers: validFreelancers,
       expenses: validExpenses,
     };
+  };
 
+  // Client account balance — derived from live works so it updates after a payment
+  // (the `client` prop is a snapshot from when the modal opened and can go stale)
+  const clientTotal = clientWorks.reduce((s, w) => s + (Number(w.priceFromClient) || 0), 0);
+  const clientAmountPaid = clientWorks.reduce((s, w) => s + (Number(w.amountPaid) || 0), 0);
+  const clientRemaining = Math.max(0, clientTotal - clientAmountPaid);
+
+  // Build the invoice payload consumed by <InvoicePrint />
+  const buildWorkInvoice = (work) => ({
+    firstName: client.firstName,
+    lastName: client.lastName,
+    company: client.company,
+    phone: client.phone,
+    date: work.date,
+    pack: work.service,
+    packPrice: Number(work.priceFromClient) || 0,
+    notes: work.notes,
+    amountPaid: clientAmountPaid,
+    remainingAmount: clientRemaining,
+  });
+
+  const buildInvoiceItem = (work) => ({
+    description:
+      work.service === 'باقة مخصصة' ? 'باقة مخصصة (Custom Agreement)' : `باقة ${work.service}`,
+    quantity: 1,
+    amount: Number(work.priceFromClient) || 0,
+    notes: work.notes,
+    date: work.date,
+  });
+
+  // Combined invoice for several selected works
+  const buildMultiWorkInvoice = (worksList) => ({
+    firstName: client.firstName,
+    lastName: client.lastName,
+    company: client.company,
+    phone: client.phone,
+    items: worksList.map(buildInvoiceItem),
+    amountPaid: clientAmountPaid,
+    remainingAmount: clientRemaining,
+  });
+
+  // --- Selection handlers ---
+  const toggleWorkSelection = (id) => {
+    setSelectedWorkIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const allSelected =
+    clientWorks.length > 0 && selectedWorkIds.length === clientWorks.length;
+
+  const toggleSelectAll = () => {
+    setSelectedWorkIds(allSelected ? [] : clientWorks.map((w) => w.id));
+  };
+
+  const handlePrintSelected = () => {
+    const selectedWorks = clientWorks.filter((w) => selectedWorkIds.includes(w.id));
+    if (selectedWorks.length === 0) return;
+    if (onPrintInvoice) onPrintInvoice(buildMultiWorkInvoice(selectedWorks));
+  };
+
+  // --- Payment handlers ---
+  const unpaidWorks = clientWorks.filter((w) => workRemaining(w) > 0);
+
+  const openPaymentModal = () => {
+    setPaymentEntries(
+      unpaidWorks.map((w) => ({
+        workId: w.id,
+        selected: false,
+        amount: String(workRemaining(w)), // default to paying the full remaining
+      }))
+    );
+    setPrintReceipt(true);
+    setIsPaymentOpen(true);
+  };
+
+  const closePaymentModal = () => {
+    setIsPaymentOpen(false);
+    setPaymentEntries([]);
+  };
+
+  const togglePaymentEntry = (workId) => {
+    setPaymentEntries((prev) =>
+      prev.map((e) => (e.workId === workId ? { ...e, selected: !e.selected } : e))
+    );
+  };
+
+  const changePaymentAmount = (workId, value) => {
+    setPaymentEntries((prev) =>
+      prev.map((e) => (e.workId === workId ? { ...e, amount: value, selected: true } : e))
+    );
+  };
+
+  const paymentSelected = paymentEntries.filter(
+    (e) => e.selected && Number(e.amount) > 0
+  );
+  const paymentTotal = paymentSelected.reduce((sum, e) => sum + Number(e.amount), 0);
+
+  const handleSubmitPayment = () => {
+    if (paymentSelected.length === 0) return;
+
+    // Snapshot the works being paid before state updates, for the optional receipt
+    const paidWorks = paymentSelected.map((e) => ({
+      work: clientWorks.find((w) => w.id === e.workId),
+      amount: Number(e.amount),
+    }));
+
+    paymentSelected.forEach((e) => recordWorkPayment(e.workId, Number(e.amount)));
+
+    if (printReceipt && onPrintInvoice) {
+      const newPaid = clientAmountPaid + paymentTotal;
+      onPrintInvoice({
+        firstName: client.firstName,
+        lastName: client.lastName,
+        company: client.company,
+        phone: client.phone,
+        isReceipt: true,
+        items: paidWorks.map(({ work, amount }) => ({
+          description:
+            work.service === 'باقة مخصصة'
+              ? 'باقة مخصصة (Custom Agreement)'
+              : `باقة ${work.service}`,
+          quantity: 1,
+          amount, // amount paid now for this work
+          date: work.date,
+        })),
+        amountPaid: newPaid,
+        remainingAmount: Math.max(0, clientTotal - newPaid),
+        paymentTotal,
+      });
+    }
+
+    closePaymentModal();
+  };
+
+  const persistWork = (workData) => {
     if (editingWorkId) {
       updateWork(editingWorkId, workData);
     } else {
       addWork(workData);
     }
+  };
 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!newWork.service) return;
+
+    persistWork(buildWorkData());
+    resetForm();
+  };
+
+  const handleSaveAndPrint = () => {
+    if (!newWork.service) return;
+
+    const workData = buildWorkData();
+    persistWork(workData);
+    if (onPrintInvoice) onPrintInvoice(buildWorkInvoice(workData));
     resetForm();
   };
 
@@ -204,14 +362,86 @@ export default function ClientWorksModal({ client, onClose }) {
 
         {/* Content (Table & Add Form) */}
         <div className="flex-1 overflow-auto p-6 space-y-6 text-sm">
+          {/* Client balance + record payment */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-gray-200 rounded-xl p-4">
+            <div className="flex items-center gap-6">
+              <div>
+                <span className="text-gray-400 block text-[11px]">الإجمالي</span>
+                <span className="font-extrabold text-gray-900 text-sm" dir="ltr">
+                  {clientTotal.toLocaleString()} DA
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[11px]">المدفوع</span>
+                <span className="font-extrabold text-emerald-500 text-sm" dir="ltr">
+                  {clientAmountPaid.toLocaleString()} DA
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[11px]">المتبقي</span>
+                <span
+                  className={`font-extrabold text-sm ${clientRemaining > 0 ? 'text-rose-500' : 'text-emerald-500'}`}
+                  dir="ltr"
+                >
+                  {clientRemaining.toLocaleString()} DA
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={openPaymentModal}
+              disabled={unpaidWorks.length === 0}
+              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-sm hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Wallet size={16} />
+              <span>{unpaidWorks.length === 0 ? 'تم تحصيل كل المستحقات' : 'تسجيل دفعة'}</span>
+            </button>
+          </div>
+
+          {/* Selection toolbar */}
+          {selectedWorkIds.length > 0 && (
+            <div className="flex items-center justify-between bg-orange-50 border border-brand-orange/30 rounded-xl px-4 py-2.5">
+              <span className="text-xs font-bold text-gray-700">
+                تم تحديد {selectedWorkIds.length} عمل
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedWorkIds([])}
+                  className="px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-900 font-bold text-xs"
+                >
+                  إلغاء التحديد
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintSelected}
+                  className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-gray-900 text-white font-bold text-xs shadow-md hover:bg-gray-800"
+                >
+                  <Printer size={14} />
+                  <span>طباعة فاتورة ({selectedWorkIds.length})</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Table */}
           <div className="overflow-x-auto rounded-xl border border-gray-200 bg-gray-50/30">
             <table className="w-full text-right whitespace-nowrap">
               <thead className="bg-gray-100 text-gray-600 text-xs font-bold border-b border-gray-200">
                 <tr>
+                  <th className="px-4 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded accent-brand-orange cursor-pointer"
+                      title="تحديد الكل"
+                    />
+                  </th>
                   <th className="px-4 py-3">التاريخ</th>
                   <th className="px-4 py-3">الخدمة</th>
                   <th className="px-4 py-3">السعر من الزبون</th>
+                  <th className="px-4 py-3">حالة الدفع</th>
                   <th className="px-4 py-3">إجمالي المصاريف</th>
                   <th className="px-4 py-3">تفاصيل المصاريف</th>
                   <th className="px-4 py-3">مستحقات الفريلانسرز</th>
@@ -236,11 +466,46 @@ export default function ClientWorksModal({ client, onClose }) {
                   const netProfit = work.priceFromClient - totalExpenses - totalFreelancerPay;
 
                   return (
-                    <tr key={work.id} className="hover:bg-gray-50 transition-colors text-xs text-gray-900/90">
+                    <tr
+                      key={work.id}
+                      className={`hover:bg-gray-50 transition-colors text-xs text-gray-900/90 ${
+                        selectedWorkIds.includes(work.id) ? 'bg-orange-50/60' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedWorkIds.includes(work.id)}
+                          onChange={() => toggleWorkSelection(work.id)}
+                          className="w-4 h-4 rounded accent-brand-orange cursor-pointer"
+                        />
+                      </td>
                       <td className="px-4 py-3 font-medium">{work.date}</td>
                       <td className="px-4 py-3 font-bold">{work.service}</td>
                       <td className="px-4 py-3 text-emerald-400 font-bold" dir="ltr">
                         {Number(work.priceFromClient || 0).toLocaleString()} DA
+                      </td>
+                      <td className="px-4 py-3">
+                        {workRemaining(work) <= 0 ? (
+                          <span className="inline-block px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-500 font-bold text-[10px]">
+                            مدفوع بالكامل
+                          </span>
+                        ) : (
+                          <div className="text-[10px] space-y-0.5">
+                            <div className="flex justify-between gap-2">
+                              <span className="text-gray-400">مدفوع</span>
+                              <span className="text-emerald-500 font-bold" dir="ltr">
+                                {(Number(work.amountPaid) || 0).toLocaleString()} DA
+                              </span>
+                            </div>
+                            <div className="flex justify-between gap-2">
+                              <span className="text-gray-400">متبقي</span>
+                              <span className="text-rose-500 font-bold" dir="ltr">
+                                {workRemaining(work).toLocaleString()} DA
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-rose-400 font-bold" dir="ltr">
                         {totalExpenses.toLocaleString()} DA
@@ -299,6 +564,13 @@ export default function ClientWorksModal({ client, onClose }) {
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-1.5">
                           <button
+                            onClick={() => onPrintInvoice && onPrintInvoice(buildWorkInvoice(work))}
+                            className="p-1.5 rounded-lg bg-gray-900/10 text-gray-700 hover:bg-gray-900/20"
+                            title="طباعة فاتورة"
+                          >
+                            <Printer size={14} />
+                          </button>
+                          <button
                             onClick={() => handleEditWork(work)}
                             className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
                             title="تعديل"
@@ -319,7 +591,7 @@ export default function ClientWorksModal({ client, onClose }) {
                 })}
                 {clientWorks.length === 0 && (
                   <tr>
-                    <td colSpan="9" className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan="11" className="px-4 py-8 text-center text-gray-400">
                       لا توجد أعمال مسجلة لهذا العميل.
                     </td>
                   </tr>
@@ -527,6 +799,14 @@ export default function ClientWorksModal({ client, onClose }) {
                   إلغاء
                 </button>
                 <button
+                  type="button"
+                  onClick={handleSaveAndPrint}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gray-900 text-white font-bold text-xs shadow-md hover:bg-gray-800"
+                >
+                  <Printer size={14} />
+                  <span>{editingWorkId ? 'تحديث وطباعة فاتورة' : 'حفظ وطباعة فاتورة'}</span>
+                </button>
+                <button
                   type="submit"
                   className={`flex items-center gap-2 px-6 py-2 rounded-xl text-gray-900 font-bold text-xs shadow-md ${editingWorkId ? 'bg-blue-600 hover:bg-blue-500' : 'bg-brand-orange text-white shadow-sm hover:brightness-110'}`}
                 >
@@ -538,6 +818,116 @@ export default function ClientWorksModal({ client, onClose }) {
           )}
         </div>
       </div>
+
+      {/* Payment Modal */}
+      {isPaymentOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="w-full max-w-lg max-h-[85vh] flex flex-col bg-white rounded-2xl border border-gray-200 shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-gray-200">
+              <div>
+                <h4 className="text-sm font-black text-gray-900 flex items-center gap-2">
+                  <Wallet size={16} className="text-emerald-600" />
+                  <span>تسجيل دفعة - {client.firstName} {client.lastName}</span>
+                </h4>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  اختر الأعمال التي دفع عنها العميل وحدد المبلغ
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closePaymentModal}
+                className="p-1.5 rounded-lg hover:bg-gray-50 text-gray-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-2 custom-scrollbar">
+              {paymentEntries.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-6">
+                  لا توجد مستحقات غير مدفوعة.
+                </p>
+              ) : (
+                paymentEntries.map((entry) => {
+                  const work = clientWorks.find((w) => w.id === entry.workId);
+                  if (!work) return null;
+                  const remaining = workRemaining(work);
+                  return (
+                    <div
+                      key={entry.workId}
+                      className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                        entry.selected ? 'border-emerald-400 bg-emerald-50/50' : 'border-gray-200 bg-gray-50/50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={entry.selected}
+                        onChange={() => togglePaymentEntry(entry.workId)}
+                        className="w-4 h-4 rounded accent-emerald-600 cursor-pointer shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-gray-900 text-xs truncate">{work.service}</p>
+                        <p className="text-[10px] text-gray-400">
+                          {work.date} · متبقي{' '}
+                          <span className="text-rose-500 font-bold" dir="ltr">
+                            {remaining.toLocaleString()} DA
+                          </span>
+                        </p>
+                      </div>
+                      <input
+                        type="number"
+                        value={entry.amount}
+                        max={remaining}
+                        min="0"
+                        onChange={(e) => changePaymentAmount(entry.workId, e.target.value)}
+                        className="w-28 p-2 rounded-lg bg-white border border-gray-200 text-gray-900 text-xs font-bold text-left"
+                        dir="ltr"
+                        placeholder="المبلغ"
+                      />
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="border-t border-gray-200 p-5 space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-bold text-gray-600">إجمالي الدفعة:</span>
+                <span className="font-black text-emerald-600 text-lg" dir="ltr">
+                  {paymentTotal.toLocaleString()} DA
+                </span>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={printReceipt}
+                  onChange={(e) => setPrintReceipt(e.target.checked)}
+                  className="w-4 h-4 rounded accent-gray-900 cursor-pointer"
+                />
+                <span>طباعة إيصال الدفع</span>
+              </label>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={closePaymentModal}
+                  className="px-4 py-2 rounded-xl text-gray-500 font-bold text-xs"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitPayment}
+                  disabled={paymentSelected.length === 0}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Wallet size={14} />
+                  <span>تسجيل الدفعة</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Replace Freelancer Modal */}
       {replaceContext && (

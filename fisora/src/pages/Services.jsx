@@ -9,7 +9,7 @@ import {
 import { useData, PREDEFINED_PACKS } from '../context/DataContext';
 
 export default function Services() {
-  const { customPacks, addCustomPack } = useData();
+  const { customPacks, addCustomPack, clients } = useData();
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
 
   // Custom Pack Form State
@@ -19,7 +19,6 @@ export default function Services() {
     videosCount: 6,
     price: 35000,
     hasActors: true,
-    formatsCount: 2,
     description: '',
   });
 
@@ -33,7 +32,6 @@ export default function Services() {
       videosCount: 6,
       price: 35000,
       hasActors: true,
-      formatsCount: 2,
       description: '',
     });
     setIsCustomModalOpen(false);
@@ -178,10 +176,6 @@ export default function Services() {
                       {cPack.hasActors ? 'مشمولين' : 'غير مشمولين'}
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">عدد الصيغ:</span>
-                    <span className="font-bold text-gray-900">{cPack.formatsCount} صيغ</span>
-                  </div>
                 </div>
               </div>
 
@@ -241,13 +235,23 @@ export default function Services() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-gray-700 font-bold mb-1">اسم العميل المقترن</label>
-                  <input
-                    type="text"
+                  <select
                     value={customForm.clientName}
                     onChange={(e) => setCustomForm({ ...customForm, clientName: e.target.value })}
-                    placeholder="اسم العميل"
                     className="w-full p-3 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-gray-900"
-                  />
+                  >
+                    <option value="">اختر العميل...</option>
+                    {clients
+                      .filter((c) => !c.isArchived)
+                      .map((c) => {
+                        const fullName = `${c.firstName} ${c.lastName}`;
+                        return (
+                          <option key={c.id} value={fullName}>
+                            {fullName}{c.company ? ` (${c.company})` : ''}
+                          </option>
+                        );
+                      })}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-gray-700 font-bold mb-1">عدد الفيديوهات المطلوبة</label>
@@ -261,7 +265,7 @@ export default function Services() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block text-gray-700 font-bold mb-1">السعر المتفق عليه (DA) *</label>
                   <input
@@ -271,16 +275,6 @@ export default function Services() {
                     onChange={(e) => setCustomForm({ ...customForm, price: e.target.value })}
                     placeholder="35000"
                     className="w-full p-3 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-gray-900 font-black text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-700 font-bold mb-1">عدد صيغ التصدير (Formats)</label>
-                  <input
-                    type="number"
-                    value={customForm.formatsCount}
-                    onChange={(e) => setCustomForm({ ...customForm, formatsCount: e.target.value })}
-                    placeholder="2"
-                    className="w-full p-3 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-gray-900 font-bold"
                   />
                 </div>
               </div>

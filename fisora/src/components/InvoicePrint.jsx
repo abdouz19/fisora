@@ -14,6 +14,37 @@ export default function InvoicePrint({ invoiceData, onPrinted }) {
 
   if (!invoiceData) return null;
 
+  // Payment breakdown is optional (client invoices track it, per-work invoices don't)
+  const hasPayment = invoiceData.amountPaid !== undefined && invoiceData.amountPaid !== null;
+  const invoiceDate = invoiceData.date
+    ? new Date(invoiceData.date).toLocaleDateString('fr-FR')
+    : new Date().toLocaleDateString('fr-FR');
+  const invoiceNumber = invoiceData.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`;
+
+  // Support both a single pack (legacy) and a list of line items (multi-work invoice)
+  const items =
+    invoiceData.items && invoiceData.items.length > 0
+      ? invoiceData.items
+      : [
+          {
+            description:
+              invoiceData.pack === 'باقة مخصصة'
+                ? 'باقة مخصصة (Custom Agreement)'
+                : `باقة ${invoiceData.pack}`,
+            quantity: 1,
+            amount: Number(invoiceData.packPrice) || 0,
+            notes: invoiceData.notes,
+          },
+        ];
+  const total = items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0);
+
+  // A payment receipt reuses this layout with different wording
+  const isReceipt = !!invoiceData.isReceipt;
+  const headingLabel = isReceipt ? 'Reçu' : 'Facture';
+  const numberLabel = isReceipt ? 'رقم الإيصال:' : 'رقم الفاتورة:';
+  const totalLabel = isReceipt ? 'مبلغ الدفعة (Versement):' : 'المبلغ الإجمالي (Total):';
+  const paidLabel = isReceipt ? 'إجمالي المدفوع:' : 'المبلغ المدفوع (Versement):';
+
   return (
     <div className="hidden print:block absolute top-0 left-0 w-full bg-white text-black min-h-screen z-[9999] p-10 font-sans" dir="rtl">
       {/* Header */}
@@ -25,12 +56,12 @@ export default function InvoicePrint({ invoiceData, onPrinted }) {
           <p className="text-sm text-gray-500">Email: contact@fisoraproduction.com</p>
         </div>
         <div className="text-left">
-          <h2 className="text-3xl font-bold text-gray-800 uppercase tracking-widest mb-2">Facture</h2>
+          <h2 className="text-3xl font-bold text-gray-800 uppercase tracking-widest mb-2">{headingLabel}</h2>
           <p className="text-sm text-gray-600">
-            <strong>رقم الفاتورة:</strong> INV-{Date.now().toString().slice(-6)}
+            <strong>{numberLabel}</strong> {invoiceNumber}
           </p>
           <p className="text-sm text-gray-600">
-            <strong>التاريخ:</strong> {new Date().toLocaleDateString('fr-FR')}
+            <strong>التاريخ:</strong> {invoiceDate}
           </p>
         </div>
       </div>
@@ -61,33 +92,45 @@ export default function InvoicePrint({ invoiceData, onPrinted }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200">
-          <tr>
-            <td className="p-4 font-medium text-gray-800">
-              {invoiceData.pack === 'باقة مخصصة' ? 'باقة مخصصة (Custom Agreement)' : `باقة ${invoiceData.pack}`}
-            </td>
-            <td className="p-4 text-center">1</td>
-            <td className="p-4 text-left font-bold" dir="ltr">
-              {Number(invoiceData.packPrice).toLocaleString()} DA
-            </td>
-          </tr>
+          {items.map((item, idx) => (
+            <tr key={idx}>
+              <td className="p-4 font-medium text-gray-800">
+                {item.description}
+                {item.date && (
+                  <span className="block text-xs text-gray-400 mt-1">التاريخ: {item.date}</span>
+                )}
+                {item.notes && (
+                  <span className="block text-xs text-gray-500 mt-1">{item.notes}</span>
+                )}
+              </td>
+              <td className="p-4 text-center">{item.quantity || 1}</td>
+              <td className="p-4 text-left font-bold" dir="ltr">
+                {(Number(item.amount) || 0).toLocaleString()} DA
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
 
       {/* Totals */}
       <div className="flex justify-end">
         <div className="w-1/2 bg-gray-50 p-6 rounded-lg border border-gray-200">
-          <div className="flex justify-between items-center mb-3">
-            <span className="text-gray-600 font-bold">المبلغ الإجمالي (Total):</span>
-            <span className="font-bold text-lg" dir="ltr">{Number(invoiceData.packPrice).toLocaleString()} DA</span>
+          <div className={`flex justify-between items-center ${hasPayment ? 'mb-3' : ''} ${isReceipt ? 'text-green-700' : ''}`}>
+            <span className="font-bold">{totalLabel}</span>
+            <span className="font-bold text-lg" dir="ltr">{total.toLocaleString()} DA</span>
           </div>
-          <div className="flex justify-between items-center mb-3 text-green-700">
-            <span className="font-bold">المبلغ المدفوع (Versement):</span>
-            <span className="font-bold text-lg" dir="ltr">{Number(invoiceData.amountPaid).toLocaleString()} DA</span>
-          </div>
-          <div className="flex justify-between items-center pt-3 border-t border-gray-300 text-red-600">
-            <span className="font-bold">المبلغ المتبقي (Reste à payer):</span>
-            <span className="font-black text-xl" dir="ltr">{Number(invoiceData.remainingAmount).toLocaleString()} DA</span>
-          </div>
+          {hasPayment && (
+            <>
+              <div className="flex justify-between items-center mb-3 text-green-700">
+                <span className="font-bold">{paidLabel}</span>
+                <span className="font-bold text-lg" dir="ltr">{Number(invoiceData.amountPaid).toLocaleString()} DA</span>
+              </div>
+              <div className="flex justify-between items-center pt-3 border-t border-gray-300 text-red-600">
+                <span className="font-bold">المبلغ المتبقي (Reste à payer):</span>
+                <span className="font-black text-xl" dir="ltr">{Number(invoiceData.remainingAmount).toLocaleString()} DA</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
