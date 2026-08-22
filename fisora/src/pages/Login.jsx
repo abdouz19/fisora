@@ -1,21 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, LogIn, Sparkles, ShieldCheck, Video, Users, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, LogIn, Sparkles, ShieldCheck, Video, Users, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { signIn, session } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('admin@fisora.com');
-  const [password, setPassword] = useState('••••••••');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogin = (e) => {
+  // Already signed in → go straight to the dashboard
+  useEffect(() => {
+    if (session) navigate('/dashboard', { replace: true });
+  }, [session, navigate]);
+
+  const handleLogin = async (e) => {
     e.preventDefault();
+    setError('');
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      navigate('/dashboard');
-    }, 700);
+    const { error: signInError } = await signIn(email.trim(), password);
+    setLoading(false);
+    if (signInError) {
+      setError('بيانات الدخول غير صحيحة. تأكد من البريد وكلمة المرور.');
+      return;
+    }
+    navigate('/dashboard', { replace: true });
   };
 
   return (
@@ -179,6 +191,14 @@ export default function Login() {
               </div>
             </div>
 
+            {/* Error message */}
+            {error && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
+                <AlertCircle size={16} className="flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
             {/* Submit Button */}
             <button
               type="submit"
@@ -195,17 +215,6 @@ export default function Login() {
               )}
             </button>
           </form>
-
-          {/* Quick Demo Login Shortcut */}
-          <div className="mt-6 p-4 rounded-xl glass-card border border-gray-200 text-center">
-            <p className="text-xs text-gray-500 mb-2">للتجربة السريعة اضغط مباشرة على الدخول</p>
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="text-xs text-brand-orange hover:underline font-bold"
-            >
-              الدخول التجريبي المباشر →
-            </button>
-          </div>
 
           {/* Copyright Footer */}
           <div className="mt-10 text-center text-xs text-gray-400">

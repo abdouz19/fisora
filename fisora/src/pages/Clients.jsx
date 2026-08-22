@@ -9,7 +9,7 @@ import {
   X,
   List,
 } from 'lucide-react';
-import { useData, PREDEFINED_PACKS } from '../context/DataContext';
+import { useData } from '../context/DataContext';
 import InvoicePrint from '../components/InvoicePrint';
 import ClientWorksModal from '../components/ClientWorksModal';
 import ConfirmModal from '../components/ConfirmModal';
@@ -27,7 +27,7 @@ const INITIAL_CLIENT_FORM = {
 };
 
 export default function Clients() {
-  const { clients, addClient, archiveClient, kpis, customPacks, freelancers, works } = useData();
+  const { clients, addClient, archiveClient, kpis, customPacks, predefinedPacks, freelancers, works } = useData();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [worksModalClient, setWorksModalClient] = useState(null);
@@ -87,7 +87,7 @@ export default function Clients() {
   };
 
   // --- Aggregate stats for selected clients within the date range ---
-  const allPacks = [...PREDEFINED_PACKS, ...customPacks];
+  const allPacks = [...predefinedPacks, ...customPacks];
   const videosForService = (service) => {
     const pack = allPacks.find((p) => p.name === service);
     return pack ? Number(pack.videosCount) || 0 : 0;
@@ -192,7 +192,7 @@ export default function Clients() {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/15 text-blue-300 text-xs font-bold mb-2 border border-blue-500/30">
             <UserCheck size={14} />
-            <span>إدارة عملاء ومشاريع فيسورا</span>
+            <span>إدارة عملاء ومشاريع في صورة</span>
           </div>
           <h1 className="text-2xl font-black text-gray-900">إدارة العملاء (Clients Management)</h1>
           <p className="text-gray-500 text-xs mt-1">
@@ -587,7 +587,7 @@ export default function Clients() {
                     value={newForm.pack}
                     onChange={(e) => {
                       const selectedName = e.target.value;
-                      const allPacks = [...PREDEFINED_PACKS, ...customPacks];
+                      const allPacks = [...predefinedPacks, ...customPacks];
                       const pack = allPacks.find(p => p.name === selectedName);
                       setNewForm({
                         ...newForm,
@@ -597,7 +597,7 @@ export default function Clients() {
                     }}
                     className="w-full p-3 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange bg-gray-50 mb-4"
                   >
-                    {PREDEFINED_PACKS.map((p) => (
+                    {predefinedPacks.map((p) => (
                       <option key={p.id} value={p.name} className="bg-gray-50 text-gray-900">
                         باقة {p.name} ({p.videosLabel} - {p.price.toLocaleString()} DA)
                       </option>

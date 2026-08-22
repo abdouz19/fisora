@@ -11,6 +11,7 @@ import {
   Search,
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
 
 const navItems = [
   { path: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard },
@@ -25,9 +26,11 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { kpis } = useData();
+  const { user, signOut } = useAuth();
 
-  const handleLogout = () => {
-    navigate('/login');
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/login', { replace: true });
   };
 
   const currentNav = navItems.find((n) => n.path === location.pathname);
@@ -170,11 +173,11 @@ export default function Layout() {
             
             <div className="flex items-center gap-3 pl-2">
               <div className="text-left hidden sm:block">
-                <p className="text-xs font-bold text-gray-900 leading-tight">إدارة منصة فيسورا</p>
-                <p className="text-[10px] text-gray-500">admin@fisora.com</p>
+                <p className="text-xs font-bold text-gray-900 leading-tight">إدارة منصة في صورة</p>
+                <p className="text-[10px] text-gray-500">{user?.email || ''}</p>
               </div>
-              <div className="w-10 h-10 rounded-full bg-brand-orange text-white font-bold flex items-center justify-center shadow-sm">
-                إ
+              <div className="w-10 h-10 rounded-full bg-brand-orange text-white font-bold flex items-center justify-center shadow-sm uppercase">
+                {user?.email ? user.email.charAt(0) : 'F'}
               </div>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Plus, Trash2, Save, Edit2, ArrowLeftRight, Printer, Wallet } from 'lucide-react';
-import { useData, PREDEFINED_PACKS } from '../context/DataContext';
+import { useData } from '../context/DataContext';
 import ConfirmModal from './ConfirmModal';
 
 // Remaining amount still owed on a single work
@@ -8,7 +8,7 @@ const workRemaining = (work) =>
   Math.max(0, (Number(work.priceFromClient) || 0) - (Number(work.amountPaid) || 0));
 
 export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
-  const { addWork, updateWork, deleteWork, getClientWorks, freelancers, customPacks, recordWorkPayment } = useData();
+  const { addWork, updateWork, deleteWork, getClientWorks, freelancers, customPacks, predefinedPacks, recordWorkPayment } = useData();
   const clientWorks = getClientWorks(client.id);
 
   const [isAdding, setIsAdding] = useState(false);
@@ -31,7 +31,7 @@ export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
     notes: '',
   });
 
-  const allPacksList = [...PREDEFINED_PACKS, ...customPacks];
+  const allPacksList = [...predefinedPacks, ...customPacks];
   const currentPack = allPacksList.find((p) => p.name === newWork.service);
   const isPackService = !!currentPack; // a predefined/custom pack (not a free custom agreement)
   const basePackPrice = currentPack ? Number(currentPack.price) || 0 : null;
@@ -676,7 +676,7 @@ export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
                     value={newWork.service}
                     onChange={(e) => {
                       const selectedName = e.target.value;
-                      const allPacks = [...PREDEFINED_PACKS, ...customPacks];
+                      const allPacks = [...predefinedPacks, ...customPacks];
                       const pack = allPacks.find(p => p.name === selectedName);
                       setNewWork({
                         ...newWork,
@@ -687,7 +687,7 @@ export default function ClientWorksModal({ client, onClose, onPrintInvoice }) {
                     }}
                     className="w-full p-2.5 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-gray-900 text-xs bg-gray-50"
                   >
-                    {PREDEFINED_PACKS.map((p) => (
+                    {predefinedPacks.map((p) => (
                       <option key={p.id} value={p.name} className="bg-gray-50 text-gray-900">
                         باقة {p.name}
                       </option>

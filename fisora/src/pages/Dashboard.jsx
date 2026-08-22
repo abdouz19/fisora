@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   TrendingUp,
@@ -14,10 +14,12 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
+import ConfirmModal from '../components/ConfirmModal';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { kpis, clients, freelancers, clearAllData } = useData();
+  const [confirmClear, setConfirmClear] = useState(false);
 
   // 4 Core KPIs requested by user
   const kpiCards = [
@@ -99,7 +101,7 @@ export default function Dashboard() {
             </button>
             {(clients.length > 0 || freelancers.length > 0) && (
               <button
-                onClick={clearAllData}
+                onClick={() => setConfirmClear(true)}
                 className="px-4 py-2.5 rounded-xl bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 font-bold text-xs transition-all flex items-center gap-2 cursor-pointer"
                 title="تفريغ جميع البيانات المسجلة"
               >
@@ -371,6 +373,15 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        onConfirm={clearAllData}
+        title="مسح جميع البيانات"
+        confirmText="نعم، امسح الكل"
+        message="سيتم حذف جميع العملاء والأعمال والفريلانسرز والباقات المخصصة نهائياً من قاعدة البيانات. لا يمكن التراجع عن هذا الإجراء. هل أنت متأكد؟"
+      />
     </div>
   );
 }
