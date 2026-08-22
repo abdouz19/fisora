@@ -204,6 +204,7 @@ export function DataProvider({ children }) {
           service: data.initialWork.service || data.pack || 'Start',
           price_from_client: price,
           amount_paid: Math.min(price, Number(data.amountPaid) || 0),
+          price_adjustment: data.initialWork.priceAdjustment || null,
           notes: data.initialWork.notes || '',
         })
         .select()

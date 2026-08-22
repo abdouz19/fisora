@@ -21,6 +21,7 @@ const INITIAL_CLIENT_FORM = {
   company: '',
   pack: 'Start',
   packPrice: 7500,
+  priceMode: 'none', // 'none' | 'discount' | 'surcharge'
   amountPaid: '',
   workDate: new Date().toISOString().split('T')[0],
   workNotes: '',
@@ -114,6 +115,22 @@ export default function Clients() {
   );
   const statsProfit = stats.revenue - stats.cost;
 
+  // --- Add-client pack pricing (discount / surcharge) ---
+  const clientCurrentPack = allPacks.find((p) => p.name === newForm.pack);
+  const clientIsPackService = !!clientCurrentPack;
+  const clientBasePackPrice = clientCurrentPack ? Number(clientCurrentPack.price) || 0 : null;
+  const clientPriceLocked = clientIsPackService && newForm.priceMode === 'none';
+  const clientPriceDelta =
+    clientBasePackPrice != null ? (Number(newForm.packPrice) || 0) - clientBasePackPrice : 0;
+  const setClientPriceMode = (mode) => {
+    setNewForm((prev) => {
+      const newMode = prev.priceMode === mode ? 'none' : mode;
+      const pack = allPacks.find((p) => p.name === prev.pack);
+      const packPrice = newMode === 'none' && pack ? pack.price : prev.packPrice;
+      return { ...prev, priceMode: newMode, packPrice };
+    });
+  };
+
   const resetAddForm = () => {
     setNewForm(INITIAL_CLIENT_FORM);
     setSelectedFreelancers([]);
@@ -157,13 +174,24 @@ export default function Clients() {
       .filter((e) => e.amount !== '')
       .map((e) => ({ id: e.id, description: e.description || 'مصروف', amount: Number(e.amount) }));
 
+    const price = Number(newForm.packPrice) || 0;
+    const priceAdjustment =
+      newForm.priceMode !== 'none' && clientCurrentPack
+        ? {
+            type: newForm.priceMode,
+            base: Number(clientCurrentPack.price) || 0,
+            amount: price - (Number(clientCurrentPack.price) || 0),
+          }
+        : null;
+
     return {
       ...newForm,
       remainingAmount: remaining,
       initialWork: {
         date: newForm.workDate,
         service: newForm.pack,
-        priceFromClient: Number(newForm.packPrice) || 0,
+        priceFromClient: price,
+        priceAdjustment,
         notes: newForm.workNotes,
         freelancers: validFreelancers,
         expenses: validExpenses,
@@ -593,6 +621,7 @@ export default function Clients() {
                         ...newForm,
                         pack: selectedName,
                         packPrice: pack ? pack.price : newForm.packPrice,
+                        priceMode: 'none',
                       });
                     }}
                     className="w-full p-3 rounded-xl bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange bg-gray-50 mb-4"
@@ -619,7 +648,7 @@ export default function Clients() {
                       type="number"
                       value={newForm.packPrice}
                       onChange={(e) => setNewForm({ ...newForm, packPrice: e.target.value })}
-                      disabled={newForm.pack !== 'باقة مخصصة'}
+                      disabled={clientPriceLocked}
                       className="w-full p-2.5 rounded-lg bg-white border-gray-200 shadow-sm text-gray-900 focus:ring-brand-orange text-left font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
@@ -644,6 +673,41 @@ export default function Clients() {
                     />
                   </div>
                 </div>
+
+                {clientIsPackService && (
+                  <div className="flex flex-wrap items-center gap-4 mb-4 -mt-2 px-1">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-emerald-600">
+                      <input
+                        type="checkbox"
+                        checked={newForm.priceMode === 'discount'}
+                        onChange={() => setClientPriceMode('discount')}
+                        className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
+                      />
+                      تخفيض على السعر
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-rose-600">
+                      <input
+                        type="checkbox"
+                        checked={newForm.priceMode === 'surcharge'}
+                        onChange={() => setClientPriceMode('surcharge')}
+                        className="w-4 h-4 rounded accent-rose-500 cursor-pointer"
+                      />
+                      زيادة على السعر
+                    </label>
+                    {newForm.priceMode !== 'none' && (
+                      <span className="text-[11px] text-gray-500">
+                        السعر الأصلي: <span dir="ltr">{clientBasePackPrice.toLocaleString()} DA</span>
+                        {clientPriceDelta !== 0 && (
+                          <span className={clientPriceDelta < 0 ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                            {' · '}
+                            {clientPriceDelta < 0 ? 'تخفيض ' : 'زيادة '}
+                            <span dir="ltr">{Math.abs(clientPriceDelta).toLocaleString()} DA</span>
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                   <div>
