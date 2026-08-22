@@ -402,9 +402,11 @@ export function DataProvider({ children }) {
   const activeFreelancers = augmentedFreelancers.filter((f) => !f.isArchived);
 
   const totalIncomes = activeClients.reduce((acc, c) => acc + (Number(c.incomes) || 0), 0);
+  // clientExpenses already includes freelancer dues (counted once, when assigned to a work).
+  // Freelancer withdrawals are NOT added here — paying a freelancer just settles the liability
+  // we already expensed; adding it again would double-count the same money.
   const clientExpenses = activeClients.reduce((acc, c) => acc + (Number(c.expenses) || 0), 0);
-  const freelancerPayouts = activeFreelancers.reduce((acc, f) => acc + (Number(f.withdrawals) || 0), 0);
-  const totalExpenses = clientExpenses + freelancerPayouts;
+  const totalExpenses = clientExpenses;
   const totalClientsCount = activeClients.length;
   const netProfit = totalIncomes - totalExpenses;
 

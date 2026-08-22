@@ -37,7 +37,7 @@ export default function Dashboard() {
     {
       id: 'expenses',
       title: 'إجمالي المصاريف',
-      subTitle: 'المصاريف وسحوبات الفريلانسرز',
+      subTitle: 'المصاريف ومستحقات الفريلانسرز',
       value: `${kpis.totalExpenses.toLocaleString()} DA`,
       icon: TrendingDown,
       trend: '0%',
