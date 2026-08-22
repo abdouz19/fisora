@@ -9,16 +9,23 @@ import {
   Phone,
   Archive,
   UserPlus,
+  TrendingDown,
+  Award,
 } from 'lucide-react';
 import { useData, FREELANCER_ROLES } from '../context/DataContext';
 import ConfirmModal from '../components/ConfirmModal';
 
 export default function Freelancers() {
-  const { freelancers, addFreelancer, recordWithdrawal, archiveFreelancer, kpis } = useData();
+  const { freelancers, works, addFreelancer, recordWithdrawal, archiveFreelancer, kpis } = useData();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRole, setSelectedRole] = useState('all');
   const [showArchived, setShowArchived] = useState(false);
+
+  // --- Spending analytics over time ---
+  const [datePreset, setDatePreset] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -80,6 +87,67 @@ export default function Freelancers() {
   const getRoleObj = (roleId) => {
     return FREELANCER_ROLES.find((r) => r.id === roleId) || FREELANCER_ROLES[6];
   };
+
+  // --- Date range handling ---
+  const toISO = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const applyPreset = (preset) => {
+    setDatePreset(preset);
+    const now = new Date();
+    if (preset === 'all') {
+      setDateFrom('');
+      setDateTo('');
+    } else if (preset === 'month') {
+      setDateFrom(toISO(new Date(now.getFullYear(), now.getMonth(), 1)));
+      setDateTo(toISO(now));
+    } else if (preset === 'year') {
+      setDateFrom(toISO(new Date(now.getFullYear(), 0, 1)));
+      setDateTo(toISO(now));
+    }
+  };
+
+  // --- Spending within the selected range ---
+  const rangeWorks = works.filter((w) => {
+    if (dateFrom && w.date < dateFrom) return false;
+    if (dateTo && w.date > dateTo) return false;
+    return true;
+  });
+  const freelancerSpend = rangeWorks.reduce(
+    (sum, w) => sum + (w.freelancers || []).reduce((a, f) => a + (Number(f.amount) || 0), 0),
+    0
+  );
+  const otherSpend = rangeWorks.reduce(
+    (sum, w) => sum + (w.expenses || []).reduce((a, e) => a + (Number(e.amount) || 0), 0),
+    0
+  );
+
+  // --- Top freelancers by money (with their work count) in the range ---
+  const freelancerAgg = {};
+  rangeWorks.forEach((w) => {
+    (w.freelancers || []).forEach((f) => {
+      if (!freelancerAgg[f.freelancerId]) freelancerAgg[f.freelancerId] = { amount: 0, works: 0 };
+      freelancerAgg[f.freelancerId].amount += Number(f.amount) || 0;
+      freelancerAgg[f.freelancerId].works += 1;
+    });
+  });
+  const topFreelancers = Object.entries(freelancerAgg)
+    .map(([id, v]) => {
+      const f = freelancers.find((x) => x.id === id);
+      return {
+        id,
+        name: f ? `${f.firstName} ${f.lastName}` : 'غير معروف',
+        role: f ? f.role : 'other',
+        amount: v.amount,
+        works: v.works,
+      };
+    })
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 5);
+  const maxTopAmount = topFreelancers.length ? topFreelancers[0].amount : 0;
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -147,6 +215,122 @@ export default function Freelancers() {
             {kpis.totalRemainingAll.toLocaleString()} DA
           </p>
           <p className="text-[11px] text-gray-500 mt-1">المستحقات المتبقية غير المسحوبة</p>
+        </div>
+      </div>
+
+      {/* Spending analytics over time */}
+      <div className="glass-card rounded-2xl p-5 border border-gray-200 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
+              <TrendingDown size={18} className="text-rose-500" />
+              <span>تحليلات المصاريف عبر الوقت</span>
+            </h3>
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              كم أنفقنا على الفريلانسرز والمصاريف الأخرى خلال الفترة المحددة
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={datePreset}
+              onChange={(e) => applyPreset(e.target.value)}
+              className="p-2 rounded-lg bg-white border border-gray-200 text-gray-900 text-xs font-bold"
+            >
+              <option value="all">كل الوقت</option>
+              <option value="month">هذا الشهر</option>
+              <option value="year">هذا العام</option>
+              <option value="custom">فترة مخصصة</option>
+            </select>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setDatePreset('custom');
+              }}
+              className="p-2 rounded-lg bg-white border border-gray-200 text-gray-900 text-xs"
+              title="من"
+            />
+            <span className="text-gray-400 text-xs">→</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setDatePreset('custom');
+              }}
+              className="p-2 rounded-lg bg-white border border-gray-200 text-gray-900 text-xs"
+              title="إلى"
+            />
+          </div>
+        </div>
+
+        {/* Spending tiles */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="bg-white rounded-xl p-4 border border-gray-100 text-center">
+            <span className="text-[11px] text-gray-400 block">مصاريف الفريلانسرز</span>
+            <span className="text-lg font-black text-amber-500" dir="ltr">
+              {freelancerSpend.toLocaleString()} DA
+            </span>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-100 text-center">
+            <span className="text-[11px] text-gray-400 block">مصاريف أخرى</span>
+            <span className="text-lg font-black text-rose-500" dir="ltr">
+              {otherSpend.toLocaleString()} DA
+            </span>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-100 text-center">
+            <span className="text-[11px] text-gray-400 block">إجمالي المصاريف</span>
+            <span className="text-lg font-black text-gray-900" dir="ltr">
+              {(freelancerSpend + otherSpend).toLocaleString()} DA
+            </span>
+          </div>
+        </div>
+
+        {/* Top freelancers */}
+        <div>
+          <h4 className="text-xs font-bold text-gray-700 flex items-center gap-2 mb-3">
+            <Award size={15} className="text-brand-orange" />
+            <span>الأكثر تحصيلاً (Top Freelancers)</span>
+          </h4>
+          {topFreelancers.length === 0 ? (
+            <p className="text-[11px] text-gray-400 italic">لا توجد مستحقات مسجلة في هذه الفترة.</p>
+          ) : (
+            <div className="space-y-2">
+              {topFreelancers.map((t, idx) => {
+                const role = getRoleObj(t.role);
+                return (
+                  <div key={t.id} className="flex items-center gap-3">
+                    <span
+                      className={`w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-black shrink-0 ${
+                        idx === 0 ? 'bg-brand-orange text-white' : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
+                      {idx + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-xs font-bold text-gray-900 truncate">
+                          {t.name}
+                          <span className="text-[10px] text-gray-400 font-normal"> · {role.label}</span>
+                          <span className="text-[10px] text-gray-400 font-normal"> · {t.works} أعمال</span>
+                        </span>
+                        <span className="text-xs font-black text-amber-500 shrink-0" dir="ltr">
+                          {t.amount.toLocaleString()} DA
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-brand-orange rounded-full"
+                          style={{ width: `${maxTopAmount ? (t.amount / maxTopAmount) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
