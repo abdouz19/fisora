@@ -374,8 +374,10 @@ export function DataProvider({ children }) {
 
   const getFreelancerDerivedDues = (freelancerId) =>
     works.reduce((sum, w) => {
-      const fPay = (w.freelancers || []).find((f) => f.freelancerId === freelancerId);
-      return sum + (fPay ? Number(fPay.amount) || 0 : 0);
+      const fPay = (w.freelancers || [])
+        .filter((f) => f.freelancerId === freelancerId)
+        .reduce((fSum, f) => fSum + (Number(f.amount) || 0), 0);
+      return sum + fPay;
     }, 0);
 
   const augmentedClients = clients.map((c) => {

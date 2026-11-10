@@ -172,8 +172,8 @@ export default function Dashboard() {
           {clients.length > 0 ? (
             <div className="space-y-4 pt-2">
               {clients.map((c) => {
-                const total = (c.incomes || 1) + (c.expenses || 0);
-                const incPct = Math.round((c.incomes / total) * 100);
+                const total = (c.incomes || 0) + (c.expenses || 0);
+                const incPct = total > 0 ? Math.round((c.incomes / total) * 100) : 50;
                 return (
                   <div key={c.id} className="space-y-1.5">
                     <div className="flex items-center justify-between text-xs font-semibold">
